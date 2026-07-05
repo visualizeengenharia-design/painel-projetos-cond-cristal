@@ -144,7 +144,7 @@
   .checklist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
   .check-item { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; }
   .check-item label { font-size: 12px; font-weight: 500; color: var(--text-secondary); flex: 1; }
-  .check-select { font-size: 12px; border: none; background: transparent; color: var(--text-primary); cursor: pointer; outline: none; font-family: inherit; font-weight: 600; max-width: 75px; }
+  .check-select { font-size: 12px; border: none; background: transparent; color: var(--text-primary); cursor: pointer; outline: none; font-family: inherit; font-weight: 600; max-width: 130px; }
 
   .dates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
   .date-field { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; }
@@ -181,6 +181,32 @@
   .btn-cancel:hover { background: var(--bg); }
 
   /* TOAST */
+
+  .countdown { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; margin-top:4px; }
+  .countdown.ok { background:#e8f5e9; color:#2e7d32; }
+  .countdown.warn { background:#fff8e1; color:#f57c00; }
+  .countdown.danger { background:#ffebee; color:#c62828; }
+  .del-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; }
+  .del-modal-overlay.open { display:flex; }
+  .del-modal { background:var(--surface); border-radius:14px; padding:28px; width:100%; max-width:400px; box-shadow:0 24px 60px rgba(0,0,0,0.25); }
+  .del-modal h3 { font-size:16px; font-weight:700; color:var(--red); margin-bottom:6px; }
+  .del-modal p { font-size:13px; color:var(--text-secondary); margin-bottom:16px; line-height:1.5; }
+  .del-project-name { font-weight:700; color:var(--text-primary); }
+  .del-password-field { margin-bottom:10px; }
+  .del-password-field label { display:block; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:5px; }
+  .del-password-field input { width:100%; border:1px solid var(--border); border-radius:7px; padding:9px 12px; font-size:14px; font-family:inherit; outline:none; background:var(--bg); color:var(--text-primary); transition:border-color 0.15s; }
+  .del-password-field input:focus { border-color:var(--red); }
+  .del-error { color:var(--red); font-size:12px; margin-bottom:10px; display:none; }
+  .del-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+  .attach-section { margin-top:4px; }
+  .attach-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .attach-item { display:flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12px; }
+  .attach-item a { color:var(--accent); text-decoration:none; font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .attach-item button { background:none; border:none; color:var(--red); cursor:pointer; font-size:13px; padding:0; line-height:1; }
+  .btn-attach { display:inline-flex; align-items:center; gap:6px; background:var(--bg); color:var(--text-secondary); border:1px dashed var(--border); border-radius:7px; padding:7px 12px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; transition:border-color 0.15s; }
+  .btn-attach:hover { border-color:var(--accent); color:var(--accent); }
+
   .toast { position: fixed; bottom: 20px; right: 20px; z-index: 1001; background: var(--text-primary); color: #fff; padding: 11px 16px; border-radius: 9px; font-size: 13px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.2); opacity: 0; transition: opacity 0.3s, transform 0.3s; transform: translateY(10px); display: flex; align-items: center; gap: 8px; }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.success { background: var(--green); }
@@ -382,12 +408,22 @@ function projectsToRows(ps) {
 
 async function syncFromSheets() {
   try {
+    // Preserve open cards before re-render
+    const openIds = new Set();
+    document.querySelectorAll('.card-body.open').forEach(el => openIds.add(el.id.replace('body-','')));
     const rows = await fetchFromSheets();
     projects = sheetsToProjects(rows);
     nextId = projects.length + 100;
     render();
     updateStats();
     checkGlobalAlert();
+    // Re-open cards that were open
+    openIds.forEach(id => {
+      const body = document.getElementById('body-'+id);
+      const btn  = document.getElementById('btn-'+id);
+      const hdr  = document.getElementById('hdr-'+id);
+      if (body) { body.classList.add('open'); btn.classList.add('open'); hdr.classList.add('open'); }
+    });
     setSyncStatus('ok', `Sincronizado com Google Sheets — ${new Date().toLocaleTimeString('pt-BR')}`);
     document.getElementById('last-updated').textContent = 'Última sync: ' + new Date().toLocaleTimeString('pt-BR');
   } catch(e) {
@@ -416,6 +452,31 @@ async function saveAllToSheets() {
     setSyncStatus('error', 'Erro ao salvar: ' + e.message);
     showToast('❌ Erro ao salvar: ' + e.message, 'error');
   }
+}
+
+
+// ─── CONTADOR 7 DIAS ÚTEIS ───────────────────────────────────────────────────
+function calcWorkdaysLeft(dateStr) {
+  if (!dateStr) return null;
+  const start = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  let count = 0; let d = new Date(start);
+  while (count < 7) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  const deadline = d;
+  const diff = Math.ceil((deadline - today) / 86400000);
+  return diff;
+}
+function countdownBadge(dateStr) {
+  if (!dateStr) return '';
+  const diff = calcWorkdaysLeft(dateStr);
+  if (diff > 7)  return `<span class="countdown ok">⏱ ${diff}d restantes</span>`;
+  if (diff > 0)  return `<span class="countdown warn">⚠️ ${diff}d restantes</span>`;
+  if (diff === 0) return `<span class="countdown danger">🔴 Vence hoje!</span>`;
+  return `<span class="countdown danger">🔴 Prazo esgotado (${Math.abs(diff)}d)</span>`;
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -466,6 +527,8 @@ function render(filtered) {
     return;
   }
   c.innerHTML = list.map(p => buildCard(p)).join('');
+  // Render attachments for each card
+  list.forEach(p => renderAttachments(p.id));
 }
 
 function buildCard(p) {
@@ -513,7 +576,7 @@ function buildCard(p) {
       <div class="section-label">📅 Datas do Processo</div>
       <div class="dates-grid">
         <div class="date-field"><label>Emissão do Boleto</label><input type="date" value="${p.boleto||''}" onchange="updateField(${p.id},'boleto',this.value)"></div>
-        <div class="date-field"><label>Pagamento da Taxa</label><input type="date" value="${p.pagamento||''}" onchange="updateField(${p.id},'pagamento',this.value)"></div>
+        <div class="date-field"><label>Pagamento da Taxa</label><input type="date" value="${p.pagamento||''}" onchange="updateField(${p.id},'pagamento',this.value)"><div>${countdownBadge(p.pagamento)}</div></div>
         <div class="date-field"><label>Início da Análise</label><input type="date" value="${p.inicioAnalise||''}" onchange="updateField(${p.id},'inicioAnalise',this.value)"></div>
         <div class="date-field"><label>Parecer de Aprovação</label><input type="date" value="${p.parecerAprovacao||''}" onchange="updateField(${p.id},'parecerAprovacao',this.value)"></div>
         <div class="date-field"><label>Alvará Municipal</label><input type="date" value="${p.alvaraMunicipal||''}" onchange="updateField(${p.id},'alvaraMunicipal',this.value)"></div>
@@ -540,6 +603,12 @@ function buildCard(p) {
       </div>
       <div class="section-label">💬 Observações</div>
       <textarea class="obs-area" placeholder="Registre observações, pendências ou comentários…" onchange="updateField(${p.id},'obs',this.value)">${p.obs||''}</textarea>
+      <div class="section-label">📎 Documentos Anexados</div>
+      <div class="attach-section">
+        <input type="file" id="file-input-${p.id}" multiple style="display:none" onchange="handleFileAttach(${p.id},this)">
+        <button class="btn-attach" onclick="triggerAttach(${p.id})">📎 Anexar documento(s)</button>
+        <div class="attach-list" id="attach-list-${p.id}"></div>
+      </div>
       <div class="card-actions">
         <button class="btn-delete" onclick="deleteProject(${p.id})">🗑 Remover</button>
         <button class="btn-save" onclick="saveCard(${p.id})">💾 Salvar e Enviar ao Sheets</button>
@@ -594,13 +663,77 @@ async function saveCard(id) {
   }
 }
 
-async function deleteProject(id) {
-  if (!confirm('Remover este projeto? A ação será salva no Google Sheets.')) return;
-  projects = projects.filter(x=>x.id!==id);
+function deleteProject(id) {
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('del-project-name').textContent = p.owner + ' — ' + p.quadra + ' / ' + p.lote;
+  document.getElementById('del-password-input').value = '';
+  document.getElementById('del-error').style.display = 'none';
+  document.getElementById('del-modal').dataset.targetId = id;
+  document.getElementById('del-modal').classList.add('open');
+}
+async function confirmDelete() {
+  const pwd = document.getElementById('del-password-input').value;
+  if (pwd !== 'CRISTAL') {
+    document.getElementById('del-error').style.display = 'block';
+    return;
+  }
+  const id = parseInt(document.getElementById('del-modal').dataset.targetId);
+  document.getElementById('del-modal').classList.remove('open');
+  projects = projects.filter(x => x.id !== id);
   await saveAllToSheets();
   updateStats();
   checkGlobalAlert();
   render();
+  showToast('🗑 Projeto removido.', '');
+}
+function cancelDelete() {
+  document.getElementById('del-modal').classList.remove('open');
+}
+
+
+// ─── ANEXOS (localStorage) ───────────────────────────────────────────────────
+function getAttachments(id) {
+  try { return JSON.parse(localStorage.getItem('attach_'+id) || '[]'); } catch(e) { return []; }
+}
+function saveAttachments(id, list) {
+  localStorage.setItem('attach_'+id, JSON.stringify(list));
+}
+function renderAttachments(id) {
+  const list = getAttachments(id);
+  const el = document.getElementById('attach-list-'+id);
+  if (!el) return;
+  el.innerHTML = list.map((a,i) => `
+    <div class="attach-item">
+      <a href="${a.data}" download="${a.name}" title="${a.name}">📎 ${a.name}</a>
+      <button onclick="removeAttachment(${id},${i})" title="Remover">✕</button>
+    </div>`).join('');
+}
+function removeAttachment(projId, idx) {
+  const list = getAttachments(projId);
+  list.splice(idx, 1);
+  saveAttachments(projId, list);
+  renderAttachments(projId);
+}
+function triggerAttach(id) {
+  const inp = document.getElementById('file-input-'+id);
+  if (inp) inp.click();
+}
+function handleFileAttach(id, input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  const list = getAttachments(id);
+  let pending = files.length;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      list.push({ name: file.name, data: e.target.result });
+      pending--;
+      if (pending === 0) { saveAttachments(id, list); renderAttachments(id); showToast('📎 ' + files.length + ' arquivo(s) anexado(s)!'); }
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
 }
 
 // ─── FILTROS ────────────────────────────────────────────────────────────────
