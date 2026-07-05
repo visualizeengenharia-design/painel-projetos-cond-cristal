@@ -291,7 +291,7 @@ const BASE_URL   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}`;
 // Colunas esperadas na planilha (linha 1 = cabeçalho, linha 2+ = dados)
 // A  B      C    D(financeiro) E(recebimento) F(projetoArq) G(artRrt) H(certidao) I(memorial)
 // J(boleto) K(pagamento) L(inicioAnalise) M(resultado) N(parecer) O(alvara)
-// P(artExec) Q(assinatura) R(statusFinal) S(obs)
+// P(artExec) Q(assinatura) R(statusFinal) S(obs) T(plantaAprovada) U(alvaraConstru)
 
 let projects = [];
 let nextId = 100;
@@ -355,7 +355,9 @@ function sheetsToProjects(rows) {
     artExecucao:     r[15] || 'Não',
     assinaturaTermo: r[16] || '',
     statusFinal:     r[17] || 'Não Iniciado',
-    obs:             r[18] || ''
+    obs:             r[18] || '',
+    plantaAprovada:  r[19] || 'Não Entregue',
+    alvaraConstru:   r[20] || 'Não Emitido',
   }));
 }
 
@@ -373,7 +375,7 @@ function projectsToRows(ps) {
     p.projetoArq, p.artRrt, p.certidao, p.memorial,
     p.boleto, p.pagamento, p.inicioAnalise, p.resultado,
     p.parecerAprovacao, p.alvaraMunicipal, p.artExecucao, p.assinaturaTermo,
-    p.statusFinal, p.obs
+    p.statusFinal, p.obs, p.plantaAprovada, p.alvaraConstru
   ]);
   return [header, ...dataRows];
 }
@@ -493,6 +495,14 @@ function buildCard(p) {
         <div class="check-item"><label>Certidão / Contrato</label><select class="check-select" onchange="updateField(${p.id},'certidao',this.value)">${chkSel(p.certidao)}</select></div>
         <div class="check-item"><label>Memorial Descritivo</label><select class="check-select" onchange="updateField(${p.id},'memorial',this.value)">${chkSel(p.memorial)}</select></div>
         <div class="check-item"><label>ART de Execução</label><select class="check-select" onchange="updateField(${p.id},'artExecucao',this.value)">${chkSel(p.artExecucao)}</select></div>
+        <div class="check-item"><label>Planta Aprovada (Prefeitura)</label><select class="check-select" onchange="updateField(${p.id},'plantaAprovada',this.value)">
+          <option ${p.plantaAprovada==='Entregue'?'selected':''}>Entregue</option>
+          <option ${p.plantaAprovada==='Não Entregue'?'selected':''}>Não Entregue</option>
+        </select></div>
+        <div class="check-item"><label>Alvará de Construção</label><select class="check-select" onchange="updateField(${p.id},'alvaraConstru',this.value)">
+          <option ${p.alvaraConstru==='Emitido'?'selected':''}>Emitido</option>
+          <option ${p.alvaraConstru==='Não Emitido'?'selected':''}>Não Emitido</option>
+        </select></div>
         <div class="check-item"><label>Status Financeiro</label>
           <select class="check-select" onchange="updateField(${p.id},'financeiro',this.value)">
             <option ${p.financeiro==='Adimplente'?'selected':''}>Adimplente</option>
@@ -622,7 +632,8 @@ async function addProject() {
     recebimento: document.getElementById('m-recebimento').value,
     projetoArq:'Não', artRrt:'Não', certidao:'Não', memorial:'Não',
     boleto:'', pagamento:'', inicioAnalise:'', resultado:'Não Iniciado',
-    parecerAprovacao:'', alvaraMunicipal:'', artExecucao:'', assinaturaTermo:'',
+    parecerAprovacao:'', alvaraMunicipal:'', artExecucao:'Não', assinaturaTermo:'',
+    statusFinal:'Não Iniciado', obs:'', plantaAprovada:'Não Entregue', alvaraConstru:'Não Emitido',
     statusFinal:'Aguardando Documentação',
     obs: document.getElementById('m-obs').value
   };
