@@ -384,6 +384,7 @@ function sheetsToProjects(rows) {
     obs:             r[18] || '',
     plantaAprovada:  r[19] || 'Não Entregue',
     alvaraConstru:   r[20] || 'Não Emitido',
+    attachments:     r[21] || '[]',
   }));
 }
 
@@ -401,7 +402,7 @@ function projectsToRows(ps) {
     p.projetoArq, p.artRrt, p.certidao, p.memorial,
     p.boleto, p.pagamento, p.inicioAnalise, p.resultado,
     p.parecerAprovacao, p.alvaraMunicipal, p.artExecucao, p.assinaturaTermo,
-    p.statusFinal, p.obs, p.plantaAprovada, p.alvaraConstru
+    p.statusFinal, p.obs, p.plantaAprovada, p.alvaraConstru, p.attachments
   ]);
   return [header, ...dataRows];
 }
@@ -692,47 +693,94 @@ function cancelDelete() {
 }
 
 
-// ─── ANEXOS (localStorage) ───────────────────────────────────────────────────
-function getAttachments(id) {
-  try { return JSON.parse(localStorage.getItem('attach_'+id) || '[]'); } catch(e) { return []; }
+// ─── ANEXOS (Google Drive) ───────────────────────────────────────────────────
+function getAttachments(projId) {
+  const p = projects.find(x => x.id === projId);
+  if (!p) return [];
+  try { return JSON.parse(p.attachments || '[]'); } catch(e) { return []; }
 }
-function saveAttachments(id, list) {
-  localStorage.setItem('attach_'+id, JSON.stringify(list));
+function saveAttachmentsToProject(projId, list) {
+  const p = projects.find(x => x.id === projId);
+  if (!p) return;
+  p.attachments = JSON.stringify(list);
+  saveAllToSheets();
 }
 function renderAttachments(id) {
   const list = getAttachments(id);
   const el = document.getElementById('attach-list-'+id);
   if (!el) return;
-  el.innerHTML = list.map((a,i) => `
+  el.innerHTML = list.length ? list.map((a,i) => `
     <div class="attach-item">
-      <a href="${a.data}" download="${a.name}" title="${a.name}">📎 ${a.name}</a>
-      <button onclick="removeAttachment(${id},${i})" title="Remover">✕</button>
-    </div>`).join('');
+      <a href="${a.url}" target="_blank" title="${a.name}">📎 ${a.name}</a>
+      <button onclick="removeAttachment(${id},'${a.fileId}')" title="Remover">✕</button>
+    </div>`).join('') : '<span style="font-size:11px;color:#aaa">Nenhum documento anexado</span>';
 }
-function removeAttachment(projId, idx) {
-  const list = getAttachments(projId);
-  list.splice(idx, 1);
-  saveAttachments(projId, list);
+async function removeAttachment(projId, fileId) {
+  if (!confirm('Remover este anexo?')) return;
+  showToast('🗑 Removendo anexo...');
+  try {
+    await fetch(WEBHOOK_URL, {
+      method: 'POST', mode: 'no-cors',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'deleteFile', fileId })
+    });
+  } catch(e) {}
+  const list = getAttachments(projId).filter(a => a.fileId !== fileId);
+  saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
+  showToast('✅ Anexo removido!');
 }
 function triggerAttach(id) {
   const inp = document.getElementById('file-input-'+id);
   if (inp) inp.click();
 }
-function handleFileAttach(id, input) {
+async function handleFileAttach(projId, input) {
   const files = Array.from(input.files);
   if (!files.length) return;
-  const list = getAttachments(id);
-  let pending = files.length;
-  files.forEach(file => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      list.push({ name: file.name, data: e.target.result });
-      pending--;
-      if (pending === 0) { saveAttachments(id, list); renderAttachments(id); showToast('📎 ' + files.length + ' arquivo(s) anexado(s)!'); }
-    };
-    reader.readAsDataURL(file);
-  });
+  showToast('⏳ Enviando ' + files.length + ' arquivo(s) para o Drive...');
+  const list = getAttachments(projId);
+  for (const file of files) {
+    const base64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(',')[1]);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    try {
+      const resp = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action: 'uploadFile',
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileData: base64
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          list.push({ name: file.name, fileId: data.fileId, url: data.fileUrl });
+        }
+      }
+    } catch(e) {
+      // no-cors fallback — try with no-cors
+      await fetch(WEBHOOK_URL, {
+        method: 'POST', mode: 'no-cors',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action: 'uploadFile',
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileData: base64
+        })
+      });
+      list.push({ name: file.name, fileId: 'pending', url: '#' });
+    }
+  }
+  saveAttachmentsToProject(projId, list);
+  renderAttachments(projId);
+  showToast('✅ ' + files.length + ' arquivo(s) enviado(s) para o Drive!');
   input.value = '';
 }
 
@@ -766,7 +814,7 @@ async function addProject() {
     projetoArq:'Não', artRrt:'Não', certidao:'Não', memorial:'Não',
     boleto:'', pagamento:'', inicioAnalise:'', resultado:'Não Iniciado',
     parecerAprovacao:'', alvaraMunicipal:'', artExecucao:'Não', assinaturaTermo:'',
-    statusFinal:'Não Iniciado', obs:'', plantaAprovada:'Não Entregue', alvaraConstru:'Não Emitido',
+    statusFinal:'Não Iniciado', obs:'', plantaAprovada:'Não Entregue', alvaraConstru:'Não Emitido', attachments:'[]',
     statusFinal:'Aguardando Documentação',
     obs: document.getElementById('m-obs').value
   };
