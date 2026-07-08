@@ -786,7 +786,6 @@ async function pickerCallback(data) {
   const projId = currentPickerProjId;
   const list = getAttachments(projId);
   for (const doc of data.docs) {
-    // Make file accessible to anyone with link
     try {
       await fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}/permissions`, {
         method: 'POST',
@@ -803,9 +802,14 @@ async function pickerCallback(data) {
       url: `https://drive.google.com/file/d/${doc.id}/view`
     });
   }
-  saveAttachmentsToProject(projId, list);
+  // Save to project and immediately sync to Sheets
+  const p = projects.find(x => x.id === projId);
+  if (p) {
+    p.attachments = JSON.stringify(list);
+    await saveAllToSheets();
+  }
   renderAttachments(projId);
-  showToast('✅ ' + data.docs.length + ' arquivo(s) anexado(s)!');
+  showToast('✅ ' + data.docs.length + ' arquivo(s) anexado(s) e salvo(s)!');
 }
 
 // ─── FILTROS ────────────────────────────────────────────────────────────────
