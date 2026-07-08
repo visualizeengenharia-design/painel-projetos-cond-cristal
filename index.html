@@ -735,7 +735,10 @@ function removeAttachment(projId, fileId) {
 
 // Initialize GAPI
 function gapiLoaded() {
-  gapi.load('picker', () => { pickerInited = true; });
+  gapi.load('client:picker', async () => {
+    await gapi.client.init({});
+    pickerInited = true;
+  });
 }
 function gsiLoaded() {
   tokenClient = google.accounts.oauth2.initTokenClient({
@@ -746,18 +749,23 @@ function gsiLoaded() {
   gapiInited = true;
 }
 
+let pickerRetries = 0;
 function triggerAttach(projId) {
   currentPickerProjId = projId;
   if (!pickerInited || !gapiInited) {
+    pickerRetries++;
+    if (pickerRetries > 10) { showToast('❌ Erro ao carregar Google Drive. Recarregue a página.'); pickerRetries=0; return; }
     showToast('⏳ Carregando Google Drive...');
-    setTimeout(() => triggerAttach(projId), 1000);
+    setTimeout(() => triggerAttach(projId), 800);
     return;
   }
+  pickerRetries = 0;
   tokenClient.callback = async (resp) => {
-    if (resp.error) { showToast('❌ Erro de autenticação'); return; }
+    if (resp.error) { showToast('❌ Erro de autenticação: ' + resp.error); return; }
     createPicker(resp.access_token);
   };
-  if (gapi.client && gapi.client.getToken && gapi.client.getToken() === null) {
+  const token = gapi.client.getToken();
+  if (!token) {
     tokenClient.requestAccessToken({ prompt: 'consent' });
   } else {
     tokenClient.requestAccessToken({ prompt: '' });
@@ -777,6 +785,7 @@ function createPicker(token) {
     .setDeveloperKey(PICKER_API_KEY)
     .setCallback(pickerCallback)
     .setTitle('Selecionar ou enviar documento')
+    .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
     .build();
   picker.setVisible(true);
 }
