@@ -641,6 +641,7 @@ function updateStatusFinal(id, value) {
   p.statusFinal = value;
   const isOpen = document.getElementById('body-'+id).classList.contains('open');
   document.getElementById('card-'+id).outerHTML = buildCard(p);
+  renderAttachments(id);
   if (isOpen) {
     document.getElementById('body-'+id).classList.add('open');
     document.getElementById('btn-'+id).classList.add('open');
@@ -659,6 +660,7 @@ async function saveCard(id) {
   const p = projects.find(x=>x.id===id);
   const isOpen = document.getElementById('body-'+id).classList.contains('open');
   document.getElementById('card-'+id).outerHTML = buildCard(p);
+  renderAttachments(id);
   if (isOpen) {
     document.getElementById('body-'+id).classList.add('open');
     document.getElementById('btn-'+id).classList.add('open');
@@ -727,11 +729,32 @@ function renderAttachments(id) {
     </div>`).join('') : '<span style="font-size:11px;color:#aaa">Nenhum documento anexado</span>';
 }
 function removeAttachment(projId, fileId) {
-  if (!confirm('Remover este anexo do painel? O arquivo permanece no Drive.')) return;
+  if (!confirm('Remover este anexo do painel?')) return;
   const list = getAttachments(projId).filter(a => a.fileId !== fileId);
   saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
-  showToast('✅ Anexo removido do painel!');
+
+  const alsoDrive = confirm('Deseja também excluir o arquivo do Google Drive?\n\nO arquivo irá para a Lixeira do Drive (pode ser restaurado por até 30 dias).');
+  if (alsoDrive) {
+    deleteFileFromDrive(fileId);
+    showToast('✅ Anexo removido do painel e enviado à Lixeira do Drive!');
+  } else {
+    showToast('✅ Anexo removido do painel! O arquivo permanece no Drive.');
+  }
+}
+
+async function deleteFileFromDrive(fileId) {
+  try {
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deleteFile', fileId })
+    });
+    // no-cors não retorna body, mas se chegou aqui a requisição foi enviada
+  } catch(e) {
+    showToast('❌ Erro ao excluir do Drive: ' + e.message, 'error');
+  }
 }
 
 // Initialize GAPI
