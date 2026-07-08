@@ -711,24 +711,16 @@ function renderAttachments(id) {
   if (!el) return;
   el.innerHTML = list.length ? list.map((a,i) => `
     <div class="attach-item">
-      <a href="${a.url}" target="_blank" title="${a.name}">📎 ${a.name}</a>
-      <button onclick="removeAttachment(${id},'${a.fileId}')" title="Remover">✕</button>
+      <a href="${a.url}" target="_blank" title="Abrir pasta no Drive">📎 ${a.name}</a>
+      <button onclick="removeAttachment(${id},'${a.fileId}')" title="Remover do painel">✕</button>
     </div>`).join('') : '<span style="font-size:11px;color:#aaa">Nenhum documento anexado</span>';
 }
 async function removeAttachment(projId, fileId) {
-  if (!confirm('Remover este anexo?')) return;
-  showToast('🗑 Removendo anexo...');
-  try {
-    await fetch(WEBHOOK_URL, {
-      method: 'POST', mode: 'no-cors',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'deleteFile', fileId })
-    });
-  } catch(e) {}
+  if (!confirm('Remover este anexo do painel? O arquivo permanece no Drive.')) return;
   const list = getAttachments(projId).filter(a => a.fileId !== fileId);
   saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
-  showToast('✅ Anexo removido!');
+  showToast('✅ Anexo removido do painel!');
 }
 function triggerAttach(id) {
   const inp = document.getElementById('file-input-'+id);
@@ -746,37 +738,24 @@ async function handleFileAttach(projId, input) {
       r.onerror = rej;
       r.readAsDataURL(file);
     });
-    try {
-      const resp = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          action: 'uploadFile',
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          fileData: base64
-        })
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.status === 'ok') {
-          list.push({ name: file.name, fileId: data.fileId, url: data.fileUrl });
-        }
-      }
-    } catch(e) {
-      // no-cors fallback — try with no-cors
-      await fetch(WEBHOOK_URL, {
-        method: 'POST', mode: 'no-cors',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          action: 'uploadFile',
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          fileData: base64
-        })
-      });
-      list.push({ name: file.name, fileId: 'pending', url: '#' });
-    }
+    // Generate a unique temp ID for this file
+    const tempId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+    // Send to Drive via no-cors (same pattern as saveAllToSheets)
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action: 'uploadFile',
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        fileData: base64,
+        tempId: tempId
+      })
+    });
+    // Link to Drive folder search — user can find file by name
+    const driveSearchUrl = 'https://drive.google.com/drive/folders/1e9zkFvMlDcansD-WkOnc06qlnEMp6BZx';
+    list.push({ name: file.name, fileId: tempId, url: driveSearchUrl });
   }
   saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
