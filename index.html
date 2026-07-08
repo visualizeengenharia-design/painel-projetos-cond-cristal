@@ -386,7 +386,7 @@ function sheetsToProjects(rows) {
     obs:             r[18] || '',
     plantaAprovada:  r[19] || 'Não Entregue',
     alvaraConstru:   r[20] || 'Não Emitido',
-    attachments:     r[21] || '[]',
+    attachments:     (r.length > 21 ? r[21] : '') || '[]',
   }));
 }
 
@@ -397,7 +397,8 @@ function projectsToRows(ps) {
     'Certidão / Contrato','Memorial Descritivo','Data de Emissão do Boleto',
     'Data de Pagamento da Taxa','Data de Início da Análise','Resultado da Análise',
     'Data do Parecer de Aprovação','Data do Alvará Municipal','ART de Execução',
-    'Data de Assinatura do Termo','Status Final da Obra','Observações'
+    'Data de Assinatura do Termo','Status Final da Obra','Observações',
+    'Planta Aprovada','Alvará de Construção','Anexos'
   ];
   const dataRows = ps.map(p => [
     p.owner, p.quadra, p.lote, p.financeiro, p.recebimento,
