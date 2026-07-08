@@ -800,16 +800,6 @@ async function pickerCallback(data) {
   const projId = currentPickerProjId;
   const list = getAttachments(projId);
   for (const doc of data.docs) {
-    try {
-      await fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}/permissions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + gapi.client.getToken().access_token,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ role: 'reader', type: 'anyone' })
-      });
-    } catch(e) {}
     list.push({
       name: doc.name,
       fileId: doc.id,
