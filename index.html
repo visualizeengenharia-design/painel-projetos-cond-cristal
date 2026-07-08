@@ -221,6 +221,8 @@
     .header-right { display: none; }
   }
 </style>
+<script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script src="https://accounts.google.com/gsi/client" onload="gsiLoaded()"></script>
 </head>
 <body>
 
@@ -606,7 +608,6 @@ function buildCard(p) {
       <textarea class="obs-area" placeholder="Registre observações, pendências ou comentários…" onchange="updateField(${p.id},'obs',this.value)">${p.obs||''}</textarea>
       <div class="section-label">📎 Documentos Anexados</div>
       <div class="attach-section">
-        <input type="file" id="file-input-${p.id}" multiple style="display:none" onchange="handleFileAttach(${p.id},this)">
         <button class="btn-attach" onclick="triggerAttach(${p.id})">📎 Anexar documento(s)</button>
         <div class="attach-list" id="attach-list-${p.id}"></div>
       </div>
@@ -693,7 +694,16 @@ function cancelDelete() {
 }
 
 
-// ─── ANEXOS (Google Drive) ───────────────────────────────────────────────────
+// ─── ANEXOS (Google Drive Picker) ────────────────────────────────────────────
+const PICKER_API_KEY   = 'AIzaSyAtONGbdmfX5MwNYykGq7S5GRwEwxTZRFU';
+const PICKER_CLIENT_ID = '335713283110-5tn0h4k6u3u3nmdnq1umk6dr8tn9819i.apps.googleusercontent.com';
+const DRIVE_FOLDER_ID  = '1e9zkFvMlDcansD-WkOnc06qlnEMp6BZx';
+const PICKER_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+let pickerInited = false;
+let gapiInited   = false;
+let tokenClient  = null;
+let currentPickerProjId = null;
+
 function getAttachments(projId) {
   const p = projects.find(x => x.id === projId);
   if (!p) return [];
@@ -709,58 +719,93 @@ function renderAttachments(id) {
   const list = getAttachments(id);
   const el = document.getElementById('attach-list-'+id);
   if (!el) return;
-  el.innerHTML = list.length ? list.map((a,i) => `
+  el.innerHTML = list.length ? list.map(a => `
     <div class="attach-item">
-      <a href="${a.url}" target="_blank" title="Abrir pasta no Drive">📎 ${a.name}</a>
+      <a href="${a.url}" target="_blank" title="Abrir arquivo no Drive">📎 ${a.name}</a>
       <button onclick="removeAttachment(${id},'${a.fileId}')" title="Remover do painel">✕</button>
     </div>`).join('') : '<span style="font-size:11px;color:#aaa">Nenhum documento anexado</span>';
 }
-async function removeAttachment(projId, fileId) {
+function removeAttachment(projId, fileId) {
   if (!confirm('Remover este anexo do painel? O arquivo permanece no Drive.')) return;
   const list = getAttachments(projId).filter(a => a.fileId !== fileId);
   saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
   showToast('✅ Anexo removido do painel!');
 }
-function triggerAttach(id) {
-  const inp = document.getElementById('file-input-'+id);
-  if (inp) inp.click();
+
+// Initialize GAPI
+function gapiLoaded() {
+  gapi.load('picker', () => { pickerInited = true; });
 }
-async function handleFileAttach(projId, input) {
-  const files = Array.from(input.files);
-  if (!files.length) return;
-  showToast('⏳ Enviando ' + files.length + ' arquivo(s) para o Drive...');
+function gsiLoaded() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: PICKER_CLIENT_ID,
+    scope: PICKER_SCOPE,
+    callback: '',
+  });
+  gapiInited = true;
+}
+
+function triggerAttach(projId) {
+  currentPickerProjId = projId;
+  if (!pickerInited || !gapiInited) {
+    showToast('⏳ Carregando Google Drive...');
+    setTimeout(() => triggerAttach(projId), 1000);
+    return;
+  }
+  tokenClient.callback = async (resp) => {
+    if (resp.error) { showToast('❌ Erro de autenticação'); return; }
+    createPicker(resp.access_token);
+  };
+  if (gapi.client && gapi.client.getToken && gapi.client.getToken() === null) {
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  } else {
+    tokenClient.requestAccessToken({ prompt: '' });
+  }
+}
+
+function createPicker(token) {
+  const uploadView = new google.picker.DocsUploadView()
+    .setParent(DRIVE_FOLDER_ID);
+  const docsView = new google.picker.DocsView()
+    .setParent(DRIVE_FOLDER_ID)
+    .setIncludeFolders(false);
+  const picker = new google.picker.PickerBuilder()
+    .addView(uploadView)
+    .addView(docsView)
+    .setOAuthToken(token)
+    .setDeveloperKey(PICKER_API_KEY)
+    .setCallback(pickerCallback)
+    .setTitle('Selecionar ou enviar documento')
+    .build();
+  picker.setVisible(true);
+}
+
+async function pickerCallback(data) {
+  if (data.action !== google.picker.Action.PICKED) return;
+  const projId = currentPickerProjId;
   const list = getAttachments(projId);
-  for (const file of files) {
-    const base64 = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result.split(',')[1]);
-      r.onerror = rej;
-      r.readAsDataURL(file);
+  for (const doc of data.docs) {
+    // Make file accessible to anyone with link
+    try {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}/permissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + gapi.client.getToken().access_token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: 'reader', type: 'anyone' })
+      });
+    } catch(e) {}
+    list.push({
+      name: doc.name,
+      fileId: doc.id,
+      url: `https://drive.google.com/file/d/${doc.id}/view`
     });
-    // Generate a unique temp ID for this file
-    const tempId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
-    // Send to Drive via no-cors (same pattern as saveAllToSheets)
-    await fetch(WEBHOOK_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        action: 'uploadFile',
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        fileData: base64,
-        tempId: tempId
-      })
-    });
-    // Link to Drive folder search — user can find file by name
-    const driveSearchUrl = 'https://drive.google.com/drive/folders/1e9zkFvMlDcansD-WkOnc06qlnEMp6BZx';
-    list.push({ name: file.name, fileId: tempId, url: driveSearchUrl });
   }
   saveAttachmentsToProject(projId, list);
   renderAttachments(projId);
-  showToast('✅ ' + files.length + ' arquivo(s) enviado(s) para o Drive!');
-  input.value = '';
+  showToast('✅ ' + data.docs.length + ' arquivo(s) anexado(s)!');
 }
 
 // ─── FILTROS ────────────────────────────────────────────────────────────────
